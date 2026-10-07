@@ -20,7 +20,7 @@ import types as _types
 from pathlib import Path as _Path
 
 FILES = ('config', 'utils', 'noise', 'data', 'measured', 'dataset', 'model', 'losses', 'training', 'inference', 'evaluation', 'figures', 'gate_loss', 'cli', 'public')
-__version__ = '1.234.0'
+__version__ = '1.0.0'
 
 _HERE = _Path(__file__).resolve().parent
 

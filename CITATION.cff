@@ -1,34 +1,36 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the article below."
-title: "PEBR-Net: prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses"
-version: 1.234.0
+message: "If you use this software, please cite it as below."
+title: "PEBR-Net: Prior- and Evidence-Bounded Reconstruction Network for BTEM Signal Recovery"
+version: 1.0.0
+doi: 10.5281/zenodo.23220720
 license: MIT
 type: software
 repository-code: "https://github.com/YYALD/PEBR-Net"
 authors:
   - family-names: Ye
     given-names: Yi
-    affiliation: "School of Electrical Engineering, Chongqing University"
+    affiliation: "School of Electrical Engineering, Chongqing University; Queen's University Belfast"
   - family-names: Zhang
     given-names: Chao
-    affiliation: "School of Resources and Safety Engineering, Chongqing University"
+    affiliation: "School of Resources and Safety Engineering, Chongqing University; State Key Laboratory of Coal Mine Disaster Dynamics and Control, Chongqing University"
   - family-names: Yu
     given-names: Nian
-    affiliation: "School of Electrical Engineering, Chongqing University"
+    affiliation: "School of Electrical Engineering, Chongqing University; State Key Laboratory of Coal Mine Disaster Dynamics and Control, Chongqing University"
 keywords:
   - borehole transient electromagnetics
   - late-time response
   - concealed conductors
+  - signal reconstruction
   - deep learning
-preferred-citation:
-  type: article
-  title: "Depth of evidential support for concealed conductors in noise-buried late-time borehole transient electromagnetic data"
-  authors:
-    - family-names: Ye
-      given-names: Yi
-    - family-names: Zhang
-      given-names: Chao
-    - family-names: Yu
-      given-names: Nian
-  status: submitted
-  year: 2026
+references:
+  - type: article
+    title: "Depth of evidential support for concealed conductors in noise-buried late-time borehole transient electromagnetic data"
+    authors:
+      - family-names: Ye
+        given-names: Yi
+      - family-names: Zhang
+        given-names: Chao
+      - family-names: Yu
+        given-names: Nian
+    status: submitted
+    year: 2026

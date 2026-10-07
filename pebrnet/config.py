@@ -46,7 +46,7 @@ except ImportError as exc:
 
 PROGRAM_NAME = "PEBR_NET"
 PROJECT_ROOT = "."
-PROGRAM_VERSION = "1.234.0"
+PROGRAM_VERSION = "1.0.0"
 ROW_DENOM_EPS = 1e-20
 
 

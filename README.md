@@ -1,5 +1,7 @@
 # PEBR-Net
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23220720.svg)](https://doi.org/10.5281/zenodo.23220720)
+
 **Prior- and evidence-bounded reconstruction of noise-buried late-time borehole transient electromagnetic (BTEM)
 responses.**
 
@@ -78,11 +80,15 @@ data/               README.md, sources.json, paired_content.json and paired.sha2
 tests/              pytest suite (data layout, noise model, endpoints, network, training defaults, package)
 docs/               documentation
 BUILD_INFO.json     version and file checksums
+CITATION.cff        citation metadata (GitHub); .zenodo.json: archive metadata (Zenodo)
 ```
 
 ## Citation
 
-Please cite the article (see `CITATION.cff`):
+Please cite the software (`CITATION.cff`) and the article:
+
+> Ye, Y., Zhang, C., & Yu, N. PEBR-Net: Prior- and Evidence-Bounded Reconstruction Network for BTEM Signal Recovery
+> (Version 1.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23220720
 
 > Ye, Y., Zhang, C., & Yu, N. Depth of evidential support for concealed conductors in noise-buried late-time
 > borehole transient electromagnetic data. (submitted)

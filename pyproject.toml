@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pebrnet"
-version = "1.234.0"
+version = "1.0.0"
 description = "PEBR-Net: prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses"
 readme = "README.md"
 license = { file = "LICENSE" }
