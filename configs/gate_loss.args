@@ -1,0 +1,15 @@
+# The gate-loss cohort alone (Figs. 9 and 10) from a trained checkpoint. Add --checkpoint <path>.
+# usage:  python -m pebrnet @configs/gate_loss.args --checkpoint checkpoints/pebrnet_checkpoint.pt
+--mode gateloss
+--paired_dir data/paired
+--device auto
+# the manuscript's 3, 6, 12 and 18 of 31 gates, extended to 19 and 22 (61.3 % and 71.0 %)
+--gate_loss_withheld 3,6,12,18,19,22
+# the level of the common error fan and of the input-quality clusters (18 of 31 = 58.1 %)
+--gate_loss_fan_withheld 18
+# every held-out test profile
+--gate_loss_profiles 0
+--output_root runs/gate_loss/output
+--model_root runs/gate_loss/model
+--plot_root runs/gate_loss/figures
+--log_root runs/gate_loss/logs

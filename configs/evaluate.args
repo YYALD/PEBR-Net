@@ -1,0 +1,11 @@
+# Test a trained checkpoint on the held-out profiles of the paired dataset and render the figure package, including the
+# gate-loss cohort (Figs. 9 and 10). Add --checkpoint <path>.
+# usage:  python -m pebrnet @configs/evaluate.args --checkpoint checkpoints/pebrnet_checkpoint.pt
+--mode figures
+--paired_dir data/paired
+--device auto
+--gate_loss_profiles 0
+--output_root runs/evaluate/output
+--model_root runs/evaluate/model
+--plot_root runs/evaluate/figures
+--log_root runs/evaluate/logs

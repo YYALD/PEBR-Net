@@ -1,0 +1,21 @@
+{
+  "dataset": {
+    "description": "Paired borehole TEM profiles (simulated), 31 gates from 0 to 20 ms",
+    "doi": "https://doi.org/10.57760/sciencedb.014t4",
+    "archive": "paired.zip",
+    "archive_sha256": null,
+    "archive_bytes": null,
+    "urls": [],
+    "folder": "data/paired",
+    "file_checksums": "data/paired.sha256",
+    "content": "data/paired_content.json"
+  },
+  "checkpoint": {
+    "description": "PEBR-Net trained with configs/train.args",
+    "archive": "pebrnet_checkpoint.pt",
+    "archive_sha256": null,
+    "archive_bytes": null,
+    "urls": [],
+    "folder": "checkpoints"
+  }
+}

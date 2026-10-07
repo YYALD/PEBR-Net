@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pebrnet"
+version = "1.234.0"
+description = "PEBR-Net: prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Yi Ye" },
+    { name = "Chao Zhang" },
+    { name = "Nian Yu" },
+]
+keywords = ["borehole TEM", "transient electromagnetics", "denoising", "deep learning", "geophysics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+# lower bounds: the oldest versions the release was tested with (requirements.txt lists both tested environments)
+dependencies = [
+    "numpy>=2.2",
+    "pandas>=2.3",
+    "matplotlib>=3.10",
+    "torch>=2.9",
+]
+
+[project.urls]
+Repository = "https://github.com/YYALD/PEBR-Net"
+
+[project.optional-dependencies]
+test = ["pytest>=8.4"]
+
+[project.scripts]
+pebrnet = "pebrnet.__main__:run"
+
+[tool.setuptools]
+packages = ["pebrnet"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]   # pycodestyle and pyflakes
+
+[tool.ruff.lint.per-file-ignores]
+# the package files share one namespace (pebrnet/__init__.py executes them in order): names defined in the other
+# files are available without imports, and tests/test_package.py checks that every one of them is defined
+"pebrnet/*.py" = ["F821", "F401", "E501", "E402"]
