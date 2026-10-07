@@ -79,7 +79,8 @@ pebrnet/            the package (one namespace across topic files; see docs/arch
 scripts/            download_data.py, train.py, evaluate_gate_loss.py
 configs/            argument files: audit.args, train.args, evaluate.args, gate_loss.args
 data/               README.md, sources.json, paired_content.json and paired.sha256; the dataset goes to data/paired/
-tests/              pytest suite (data layout, noise model, endpoints, network, training defaults, package)
+tests/              pytest suite (data layout, noise model, endpoints, network, two-card training, training defaults,
+                    package)
 docs/               documentation
 BUILD_INFO.json     version and file checksums
 CITATION.cff        citation metadata (GitHub); .zenodo.json: archive metadata (Zenodo)

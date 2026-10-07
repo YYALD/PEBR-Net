@@ -1240,8 +1240,10 @@ class PEBRNet(nn.Module):
     def _gate_loss_fill(self, x: torch.Tensor, nb: Optional[torch.Tensor], obs_mask: torch.Tensor,
                             gs: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Dict[str, torch.Tensor]]]:
         m = obs_mask.to(device=x.device, dtype=torch.float32).reshape(x.shape[0], 1, -1)
-        if m.shape[-1] != x.shape[-1] or not bool((m < 0.5).any()):
+        if m.shape[-1] != x.shape[-1]:
             return x, nb, None
+        withheld = m < 0.5
+        any2 = bool(withheld.any())
         with torch.no_grad(), amp_autocast_context(x.device, enabled=False):
             g = gs.float().reshape(1, 1, -1)
             za = signed_symlog(x.float() / g)
@@ -1255,12 +1257,11 @@ class PEBRNet(nn.Module):
                 if str(getattr(self.cfg, "gate_loss_rate_bound", "off")).lower() in ("input", "on", "both"):
                     zf = self._rate_bound(zf, m, g)
             yf = signed_symexp(zf) * g
-        withheld = m < 0.5
         x_new = torch.where(withheld, yf[:, :1].to(dtype=x.dtype), x)
         nb_new = nb
         if nb is not None and nb.shape[1] > 0:
             nb_new = torch.where(withheld.expand(-1, nb.shape[1], -1), yf[:, 1:].to(dtype=nb.dtype), nb)
-        return x_new, nb_new, {"mask": m, "z_fill": zf[:, :1],
+        return x_new, nb_new, {"mask": m, "z_fill": zf[:, :1], "any": any2,
                                "cdmr": not (bool(getattr(self, "_ablate_cdmr", False))
                                             or not bool(getattr(self.cfg, "gate_loss_continuation", True)))}
 
@@ -2662,7 +2663,7 @@ class PEBRNet(nn.Module):
                 lam_factor=_lf, floor_gate=_fg)
             lateral_applied = True
             out_lambda_factor = _lf
-        if (_gl2 is not None and bool(_gl2.get("cdmr", False))
+        if (_gl2 is not None and bool(_gl2.get("cdmr", False)) and bool(_gl2.get("any", True))
                 and getattr(self, "gl_departure_logit", None) is not None):
             z_hat = self._withheld_departure(z_hat, _gl2, trace_scale)
         denoised_eq = signed_symexp(z_hat.float())

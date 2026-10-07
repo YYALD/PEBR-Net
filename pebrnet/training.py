@@ -4414,17 +4414,13 @@ class PatchAlignedDataParallel(nn.DataParallel):
         except AttributeError:
             return getattr(self.module, name)
 
-    def scatter(self, inputs, kwargs, device_ids):
-        B = None
-        for a in list(inputs) + list((kwargs or {}).values()):
-            if torch.is_tensor(a) and a.dim() >= 1:
-                B = int(a.shape[0])
-                break
-        n = len(device_ids)
+    def split_sizes(self, B: int, n: int) -> List[int]:
+        """Rows per card for a batch of B rows on n cards, on patch boundaries (one chunk when the batch is smaller
+        than two patches).
+        """
         P = self.patch_len
-        if B is None or n <= 1 or B < 2 * P:
-            self._chunk_sizes = [int(B or 0)]
-            return [tuple(inputs)], [dict(kwargs or {})]
+        if n <= 1 or B < 2 * P:
+            return [int(B)]
         npatch = B // P
         _s = float(getattr(self, "primary_share", 0.5))
         if n >= 2 and abs(_s - 0.5) > 1e-6 and npatch >= n:
@@ -4435,7 +4431,21 @@ class PatchAlignedDataParallel(nn.DataParallel):
         else:
             per = [(npatch // n + (1 if i < npatch % n else 0)) * P for i in range(n)]
         per[-1] += B - sum(per)
-        per = [c for c in per if c > 0]
+        return [c for c in per if c > 0]
+
+    def scatter(self, inputs, kwargs, device_ids):
+        B = None
+        for a in list(inputs) + list((kwargs or {}).values()):
+            if torch.is_tensor(a) and a.dim() >= 1:
+                B = int(a.shape[0])
+                break
+        if B is None:
+            self._chunk_sizes = [0]
+            return [tuple(inputs)], [dict(kwargs or {})]
+        per = self.split_sizes(B, len(device_ids))
+        if len(per) <= 1:
+            self._chunk_sizes = [int(B)]
+            return [tuple(inputs)], [dict(kwargs or {})]
         self._chunk_sizes = per
         offs = np.cumsum([0] + per).tolist()
         def _split(x, i, dev):
@@ -4460,6 +4470,11 @@ class PatchAlignedDataParallel(nn.DataParallel):
                     return torch.cat([v.to(output_device) for v in vals], dim=0)
                 return v0.to(output_device)
             if isinstance(v0, dict):
+                ks = [set(v) for v in vals]
+                if any(k != ks[0] for k in ks[1:]):
+                    allk = set().union(*ks)
+                    raise RuntimeError("the cards returned different outputs: " + "; ".join(
+                        "card %d lacks %s" % (i, sorted(allk - k)) for i, k in enumerate(ks) if allk - k))
                 return {k: _g([v[k] for v in vals]) for k in v0}
             if isinstance(v0, (list, tuple)):
                 return type(v0)(_g(list(z)) for z in zip(*vals))
@@ -4628,6 +4643,34 @@ def parallel_model(model: nn.Module) -> nn.Module:
     if w is not None and getattr(w, "module", None) is model:
         return w
     return model
+
+
+def two_card_check(model: nn.Module, wrapper: nn.Module, b: Mapping[str, Any], patch_len: int) -> Tuple[float, float]:
+    """The two-card wrapper against the model itself on one patch-aligned batch."""
+    def _fwd(net: nn.Module, **kw: Any) -> Dict[str, torch.Tensor]:
+        return net(b["noisy"], b.get("neighbors"), b.get("neighbor_geometry"),
+                   depth_norm=b.get("depth_norm"), profile_len=batch_profile_len(b), **kw)
+
+    def _rel(a: torch.Tensor, r: torch.Tensor) -> float:
+        a = a.float().to(r.device)
+        r = r.float()
+        return float((a - r).abs().max() / (r.abs().max() + 1e-30))
+
+    with torch.no_grad():
+        rel_plain = _rel(_fwd(wrapper)["denoised"], _fwd(model)["denoised"])
+    if not math.isfinite(rel_plain) or rel_plain > 1e-3:
+        raise RuntimeError("max rel diff %.3e" % rel_plain)
+    om = torch.ones_like(b["noisy"], dtype=torch.float32)
+    om[:max(1, int(patch_len)), ..., -max(1, int(round(om.shape[-1] * 6.0 / 31.0))):] = 0.0
+    with torch.no_grad():
+        r = _fwd(model, obs_mask=om)
+        d = _fwd(wrapper, obs_mask=om)
+    if set(r) != set(d):
+        raise RuntimeError("gate-loss forward: the outputs differ in %s" % sorted(set(r) ^ set(d)))
+    rel_gl = max(_rel(d[k], r[k]) for k in ("denoised", "gate_loss_fill_z"))
+    if not math.isfinite(rel_gl) or rel_gl > 1e-3:
+        raise RuntimeError("gate-loss forward: max rel diff %.3e" % rel_gl)
+    return rel_plain, rel_gl
 
 
 def _warm_up_cards(model: nn.Module, ids: List[int], patch_len: int, logger: logging.Logger) -> None:
@@ -5391,16 +5434,10 @@ def preflight_self_test(model: "PEBRNet", loss_fn: "ProjectLoss", train_loader: 
         _w = _DP_STATE.get("wrapper")
         if _w is not None:
             try:
-                b4 = _take(4)
-                with torch.no_grad():
-                    o_raw = model(b4["noisy"], b4.get("neighbors"), b4.get("neighbor_geometry"),
-                                  depth_norm=b4.get("depth_norm"), profile_len=batch_profile_len(b4))["denoised"].float()
-                    o_dp = _w(b4["noisy"], b4.get("neighbors"), b4.get("neighbor_geometry"),
-                                 depth_norm=b4.get("depth_norm"), profile_len=batch_profile_len(b4))["denoised"].float()
-                _rel = float((o_dp.to(o_raw.device) - o_raw).abs().max() / (o_raw.abs().max() + 1e-30))
-                if not math.isfinite(_rel) or _rel > 1e-3:
-                    raise RuntimeError("max rel diff %.3e" % _rel)
-                logger.info("two-card forward reproduces the single-card forward (max rel diff %.2e).", _rel)
+                _rel, _rel2 = two_card_check(model, _w, _take(4),
+                                                      int(getattr(cfg.data, "profile_patch_len", 1) or 1))
+                logger.info("two-card forward reproduces the single-card forward (max rel diff %.2e; gate-loss "
+                            "forward with withheld gates on one card only %.2e).", _rel, _rel2)
             except Exception as _e:
                 _DP_STATE["wrapper"] = None
                 logger.warning("two-card wrapper DISARMED (single card for this run): %r", _e)
@@ -6103,10 +6140,26 @@ def linear_information_ladder(clean_mm: Any, noisy_path: str, province_id: np.nd
     return out
 
 
-def cdmr_basis_signature(base: nn.Module) -> Tuple[float, float]:
-    """The decay manifold a CDM-R calibration was fitted on (mean and basis magnitudes)."""
-    return (round(float(base.lib_mu.detach().float().abs().sum().item()), 6),
-            round(float(base.lib_basis.detach().float().abs().sum().item()), 6))
+def manifold_digest(base: nn.Module, names: Sequence[str] = ("lib_mu", "lib_basis")) -> str:
+    """SHA-256 of the bytes of the named manifold buffers (float32, C order): the same on every device and in every
+    replica, unlike a float32 sum rounded to six decimals.
+    """
+    h = hashlib.sha256()
+    for nm in names:
+        t = getattr(base, nm, None)
+        h.update(nm.encode("ascii"))
+        if t is None:
+            h.update(b"-")
+            continue
+        a = t.detach().to(device="cpu", dtype=torch.float32).contiguous().numpy()
+        h.update(repr(tuple(a.shape)).encode("ascii"))
+        h.update(a.tobytes())
+    return h.hexdigest()
+
+
+def cdmr_basis_signature(base: nn.Module) -> str:
+    """The decay manifold a CDM-R calibration was fitted on: the exact digest of lib_mu and lib_basis."""
+    return manifold_digest(base, ("lib_mu", "lib_basis"))
 
 
 def fit_diag_gmm(X: np.ndarray, K: int, seed: int = 778, iters: int = 200,
@@ -9442,7 +9495,7 @@ def fit_micro_batch(
             _AUX_PROBE_MODE["on"] = False
             model.zero_grad(set_to_none=True)
             model.train(was)
-        del b, out, l
+        del b, out, probe_loss
         free_cuda_after_oom()
         return peaks
 

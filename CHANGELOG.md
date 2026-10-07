@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Two-card training: when a batch's withheld gates fell on one card's share only, the cards returned different
+  outputs and the gather stopped with `KeyError: 'gate_loss_fill_z'`. The forward now returns the same outputs on
+  every card, the gather names any difference, and the start-up check compares a two-card gate-loss forward with one
+  card (`tests/test_two_card.py` runs the split and the gather on the CPU).
+- GPU memory probe: the probe of the real training step raised an error after measuring and fell back to a coarser
+  estimate (smaller micro-batches); it now completes.
+- The CDM-R calibration is matched to the decay manifold in force by an exact digest of its values, the same on
+  every device, instead of rounded sums.
 - The curvature of the gate-loss endpoints is κ(t) = dp/d ln t as defined by Eq. A13 (the sign was reversed); the
   endpoint values do not change.
 - Citation metadata (`CITATION.cff`, `.zenodo.json`, README): title, affiliations and references as in the
