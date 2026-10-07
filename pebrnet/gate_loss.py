@@ -1,4 +1,4 @@
-# PEBR-Net -- prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+# PEBR-Net, the prior- and evidence-bounded reconstruction network.
 # MIT License, see LICENSE.
 """The gate-loss cohort.
 
@@ -48,8 +48,8 @@ def gate_times_ms(clean_cache: "CleanCacheInfo") -> np.ndarray:
 
 def decay_law_descriptors(y: np.ndarray, t_ms: np.ndarray,
                               floor: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
-    """Eq. A13 per row: local decay exponent p(t) = -d ln y / d ln t and curvature kappa(t) = d^2 ln y / d(ln t)^2,
-    second-order differences on the true (non-uniform) log-time axis.
+    """Eq. A13 per row: local decay exponent p(t) = -d ln y / d ln t and curvature kappa(t) = d p / d ln t,
+    differences on the true (non-uniform) log-time axis.
     """
     yy = np.atleast_2d(np.asarray(y, dtype=np.float64))
     tt = np.asarray(t_ms, dtype=np.float64).reshape(-1)
@@ -61,8 +61,8 @@ def decay_law_descriptors(y: np.ndarray, t_ms: np.ndarray,
         return np.concatenate([pad, p1], axis=1), np.concatenate([pad, k1], axis=1)
     lt = np.log(tt)
     ly = np.log(np.maximum(yy, floor))
-    d1 = np.gradient(ly, lt, axis=1)
-    return -d1, np.gradient(d1, lt, axis=1)
+    p = -np.gradient(ly, lt, axis=1)
+    return p, np.gradient(p, lt, axis=1)
 
 
 def gate_loss_endpoints(pred: np.ndarray, ref: np.ndarray, t_ms: np.ndarray, cut: int, late_start: int,
@@ -616,7 +616,7 @@ def _kde(v: np.ndarray, grid: np.ndarray, max_n: int = 4000, seed: int = 765) ->
 def render_gate_loss_reconstruction(fig_dir: Path, t_ms: np.ndarray, levels: Sequence[Mapping[str, Any]],
                                         samples: Sequence[Mapping[str, Any]], logger: logging.Logger,
                                         stem: str = "fig_gate_loss_reconstruction", unit: str = "nT/s") -> None:
-    """Figure 9 layout: one row per withheld level, one column per sample trace."""
+    """Reconstruction figure: one row per withheld level, one column per sample trace."""
     if not samples:
         logger.warning("%s not rendered: no sample trace satisfied the selection rules.", stem)
         return
@@ -696,7 +696,7 @@ def render_gate_loss_mechanisms(fig_dir: Path, levels: Sequence[Mapping[str, Any
                                     area_delta: Mapping[str, Sequence[Mapping[str, Any]]], fan: Mapping[str, Any],
                                     fan_li: int, snr_name: str, clusters: np.ndarray, logger: logging.Logger,
                                     stem: str = "fig_gate_loss_mechanisms") -> None:
-    """Figure 10 layout."""
+    """Mechanism figure."""
     import matplotlib
     if matplotlib.get_backend().lower() != "agg":
         matplotlib.use("Agg")

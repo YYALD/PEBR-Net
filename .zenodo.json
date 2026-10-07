@@ -1,11 +1,11 @@
 {
-  "title": "PEBR-Net: Prior- and Evidence-Bounded Reconstruction Network for BTEM Signal Recovery",
+  "title": "PEBR-Net: Depth of evidential support for concealed conductors in noise-buried late-time borehole transient electromagnetic data",
   "upload_type": "software",
-  "description": "<p>Source code of PEBR-Net, the prior- and evidence-bounded reconstruction network for noise-buried late-time borehole transient electromagnetic (BTEM) responses: training, validation and testing on the paired simulated dataset (https://doi.org/10.57760/sciencedb.014t4), the gate-loss experiments, run configurations, environment specification and tests.</p>",
+  "description": "<p>Source code of the prior- and evidence-bounded reconstruction network (PEBR-Net) of the article <em>Depth of evidential support for concealed conductors in noise-buried late-time borehole transient electromagnetic data</em> (Ye, Zhang and Yu; manuscript submitted to Journal of Geophysical Research: Solid Earth): network architecture, loss terms, relaxation grids, training protocol, environment specifications, random seeds, run configurations, figure-generation code and tests. PEBR-Net is trained, validated and tested on a paired dataset of simulated profiles (https://doi.org/10.57760/sciencedb.014t4).</p>",
   "creators": [
     {
       "name": "Ye, Yi",
-      "affiliation": "School of Electrical Engineering, Chongqing University; Queen's University Belfast"
+      "affiliation": "School of Electrical Engineering, Chongqing University"
     },
     {
       "name": "Zhang, Chao",

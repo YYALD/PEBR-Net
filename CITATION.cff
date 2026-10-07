@@ -1,15 +1,23 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "PEBR-Net: Prior- and Evidence-Bounded Reconstruction Network for BTEM Signal Recovery"
-version: 1.0.0
-doi: 10.5281/zenodo.23220720
+title: "PEBR-Net: Depth of evidential support for concealed conductors in noise-buried late-time borehole transient electromagnetic data"
+version: V1.0.0
+doi: 10.5281/zenodo.23220721
+date-released: 2026-10-07
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23220721
+    description: "Version V1.0.0 (Zenodo)"
+  - type: doi
+    value: 10.5281/zenodo.23220720
+    description: "All versions (Zenodo)"
 license: MIT
 type: software
 repository-code: "https://github.com/YYALD/PEBR-Net"
 authors:
   - family-names: Ye
     given-names: Yi
-    affiliation: "School of Electrical Engineering, Chongqing University; Queen's University Belfast"
+    affiliation: "School of Electrical Engineering, Chongqing University"
   - family-names: Zhang
     given-names: Chao
     affiliation: "School of Resources and Safety Engineering, Chongqing University; State Key Laboratory of Coal Mine Disaster Dynamics and Control, Chongqing University"
@@ -32,5 +40,20 @@ references:
         given-names: Chao
       - family-names: Yu
         given-names: Nian
+    journal: "Journal of Geophysical Research: Solid Earth"
     status: submitted
+    year: 2026
+  - type: data
+    title: "SimPEG-based synthetic three-dimensional borehole TEM dataset"
+    authors:
+      - family-names: Ye
+        given-names: Yi
+      - family-names: Zhang
+        given-names: Chao
+      - family-names: Yu
+        given-names: Nian
+    version: "1"
+    publisher:
+      name: "Science Data Bank"
+    doi: 10.57760/sciencedb.014t4
     year: 2026

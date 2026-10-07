@@ -1,6 +1,6 @@
-# PEBR-Net -- prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+# PEBR-Net, the prior- and evidence-bounded reconstruction network.
 # MIT License, see LICENSE.
-"""PEBR-Net: prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+"""PEBR-Net, the prior- and evidence-bounded reconstruction network.
 
 The package is one namespace written across topic files. This loader executes the files listed in FILES, in that
 order, into the package namespace, so module-level state and every cross-reference behave as in a single module.

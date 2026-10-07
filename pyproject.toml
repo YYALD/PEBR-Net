@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pebrnet"
 version = "1.0.0"
-description = "PEBR-Net: prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses"
+description = "PEBR-Net: Depth of evidential support for concealed conductors in noise-buried late-time borehole transient electromagnetic data"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
     { name = "Chao Zhang" },
     { name = "Nian Yu" },
 ]
-keywords = ["borehole TEM", "transient electromagnetics", "denoising", "deep learning", "geophysics"]
+keywords = ["borehole transient electromagnetics", "late-time response", "concealed conductors", "signal reconstruction", "deep learning"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",

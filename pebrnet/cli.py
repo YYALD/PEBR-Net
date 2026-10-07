@@ -1,4 +1,4 @@
-# PEBR-Net -- prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+# PEBR-Net, the prior- and evidence-bounded reconstruction network.
 # MIT License, see LICENSE.
 """Command line: the argument parser, the configuration builder and main().
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 def _build_parser_full() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="PEBR-Net: reconstruction of noise-buried late-time borehole TEM responses.",
+        description="PEBR-Net, the prior- and evidence-bounded reconstruction network.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.fromfile_prefix_chars = "@"
@@ -669,7 +669,8 @@ def _build_parser_full() -> argparse.ArgumentParser:
                    help="Do not continue withheld gates by CDM-R in the forward (the trunk then reads whatever the "
                         "withheld gates hold).")
     p.add_argument("--gate_loss_rate_bound", choices=["off", "input"], default=None,
-                   help="Hold the local relaxation rate of the continued tail in [0, nu*] (Eq. 4); default off.")
+                   help="Hold the local relaxation rate of the continued tail in [0, nu*] (Eq. A5, the "
+                        "envelope of Eq. 4); default off.")
     p.add_argument("--informative_continuation", choices=["off", "on"], default=None,
                    help="Inference: remove the late window beyond each trace's last informative gate (decided by "
                         "the network's own reliability) and continue it by CDM-R.")
@@ -691,7 +692,7 @@ def _build_parser_full() -> argparse.ArgumentParser:
                    help="Test profiles scored by the gate-loss suite (default 240, evenly spaced; 0 = all).")
     p.add_argument("--gate_loss_fan_withheld", type=int, default=None,
                    help="Withheld gates (per 31) of the common error fan and the input-quality clusters "
-                        "(default 18 = 58.1%%, the manuscript's Fig. 10).")
+                        "(default 18 = 58.1%%).")
     p.add_argument("--no_gate_loss_noise_tail", action="store_true",
                    help="Skip the no-continuation baseline of the gate-loss suite.")
     p.add_argument("--evidence_uninformed_cut", action="store_true",

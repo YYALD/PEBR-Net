@@ -1,4 +1,4 @@
-# The gate-loss cohort alone (Figs. 9 and 10) from a trained checkpoint. Add --checkpoint <path>.
+# The gate-loss cohort alone from a trained checkpoint. Add --checkpoint <path>.
 # usage:  python -m pebrnet @configs/gate_loss.args --checkpoint checkpoints/pebrnet_checkpoint.pt
 --mode gateloss
 --paired_dir data/paired

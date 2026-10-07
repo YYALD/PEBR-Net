@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PEBR-Net -- MIT License, see LICENSE.
-"""The gate-loss cohort of the manuscript (Figs. 9 and 10) from a trained checkpoint.
+"""The gate-loss cohort of the manuscript (Section 5.2) from a trained checkpoint.
 
 The last 3, 6, 12, 18, 19 and 22 of 31 gates (9.7-71.0 %) of every station of the held-out test profiles are
 withheld; the full network, the network without CDM-R and the network without E-GSR are scored against the clean

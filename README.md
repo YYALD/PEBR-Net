@@ -2,25 +2,27 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23220720.svg)](https://doi.org/10.5281/zenodo.23220720)
 
-**Prior- and evidence-bounded reconstruction of noise-buried late-time borehole transient electromagnetic (BTEM)
-responses.**
+**PEBR-Net: Depth of evidential support for concealed conductors in noise-buried late-time borehole transient
+electromagnetic data**
 
-This repository holds the code of the manuscript *Depth of evidential support for concealed conductors in
-noise-buried late-time borehole transient electromagnetic data* by Yi Ye, Chao Zhang and Nian Yu (Chongqing
-University). It trains, validates and tests PEBR-Net on a paired dataset of simulated profiles
-(https://doi.org/10.57760/sciencedb.014t4).
+This repository holds the code of the prior- and evidence-bounded reconstruction network (PEBR-Net) of the
+manuscript *Depth of evidential support for concealed conductors in noise-buried late-time borehole transient
+electromagnetic data* by Yi Ye, Chao Zhang and Nian Yu (Chongqing University). It trains, validates and tests
+PEBR-Net on a paired dataset of simulated profiles (https://doi.org/10.57760/sciencedb.014t4).
 
 ## Method
 
-PEBR-Net reconstructs the late-time window of borehole TEM records under two bounds:
+PEBR-Net continues the late-time window of a borehole transient electromagnetic (BTEM) record from a
+decay-consistent relaxation state and admits departures from it only where they persist across gates and remain
+coherent across borehole stations. Two mechanisms act on each station and its neighborhood:
 
-- **CDM-R** (conditional decay-manifold regeneration) continues the late window from a decay-consistent relaxation
-  state fitted to the informative gates.
-- **E-GSR** (evidence-gated structural restoration) admits a departure from that state where the evidence supports
-  it.
+- **CDM-R** (conditional decay-manifold regeneration) maps the pooled features to a relaxation state on the grid of
+  Eq. 3 and returns the baseline.
+- **E-GSR** (evidence-gated structural restoration) admits departures from that baseline only on two forms of
+  evidence, temporal persistence and depth consistency; the two mechanisms compose additively (Eq. 6).
 
-Training enforces the errors of Eq. 7 as constraints. [docs/method.md](docs/method.md) maps the manuscript onto the
-code.
+Training enforces the error measures of Eq. 7 as inequality constraints through an augmented-Lagrangian scheme.
+[docs/method.md](docs/method.md) maps the manuscript onto the code.
 
 ## The data
 
@@ -85,13 +87,21 @@ CITATION.cff        citation metadata (GitHub); .zenodo.json: archive metadata (
 
 ## Citation
 
-Please cite the software (`CITATION.cff`) and the article:
+Software (`CITATION.cff`; all versions: https://doi.org/10.5281/zenodo.23220720):
 
-> Ye, Y., Zhang, C., & Yu, N. PEBR-Net: Prior- and Evidence-Bounded Reconstruction Network for BTEM Signal Recovery
-> (Version 1.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23220720
+> Ye, Y., Zhang, C., & Yu, N. (2026). PEBR-Net: Depth of evidential support for concealed conductors in noise-buried
+> late-time borehole transient electromagnetic data (Version V1.0.0) [Software]. Zenodo.
+> https://doi.org/10.5281/zenodo.23220721
 
-> Ye, Y., Zhang, C., & Yu, N. Depth of evidential support for concealed conductors in noise-buried late-time
-> borehole transient electromagnetic data. (submitted)
+Article:
+
+> Ye, Y., Zhang, C., & Yu, N. (2026). Depth of evidential support for concealed conductors in noise-buried late-time
+> borehole transient electromagnetic data. Manuscript submitted to Journal of Geophysical Research: Solid Earth.
+
+Data:
+
+> Ye, Y., Zhang, C., & Yu, N. (2026). SimPEG-based synthetic three-dimensional borehole TEM dataset (Version 1)
+> [Dataset]. Science Data Bank. https://doi.org/10.57760/sciencedb.014t4
 
 ## License
 

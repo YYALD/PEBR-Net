@@ -19,6 +19,14 @@ def test_power_law_has_constant_exponent_and_zero_curvature():
     assert np.allclose(k, 0.0, atol=1e-9)
 
 
+def test_curvature_is_the_derivative_of_the_exponent():
+    """Eq. A13: kappa = dp/d ln t. For exp(-t/tau), p = t/tau and kappa = t/tau, positive where the decay steepens."""
+    t = np.geomspace(0.05, 16.0, 31)
+    p, k = pn.decay_law_descriptors(np.exp(-t / 2.0)[None, :], t)
+    assert np.allclose(p[0, 2:-2], t[2:-2] / 2.0, rtol=2e-2)
+    assert np.all(k[0, 2:-2] > 0) and np.allclose(k[0, 2:-2], t[2:-2] / 2.0, rtol=5e-2)
+
+
 def test_endpoints_identity_level_error_and_collapse():
     y, t = _clean(1)
     e = pn.gate_loss_endpoints(y, y, t, cut=13, late_start=20)

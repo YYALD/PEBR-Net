@@ -1,4 +1,4 @@
-# PEBR-Net -- prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+# PEBR-Net, the prior- and evidence-bounded reconstruction network.
 # MIT License, see LICENSE.
 """Evaluation and diagnostics on known-truth data.
 
@@ -674,7 +674,7 @@ def run_anomaly_preservation_suite(
         logger.warning(
             "    %d required cell(s) had NO samples: %s. The grid cannot certify a cell it "
             "never populated -- raise --anomaly_suite_per_cell, or accept that the family "
-            "cannot physically produce that contrast and say so in the paper.",
+            "cannot physically produce that contrast.",
             len(missing_cells), ", ".join(missing_cells[:6]))
     if _unplaceable:
         logger.info("    %d case(s) could not be calibrated into their target bin (e.g. %s)",
@@ -2339,8 +2339,8 @@ def verify_frozen_contract(
     state: Mapping[str, Any],
     logger: logging.Logger,
 ) -> Dict[str, float]:
-    """Re-evaluate the loaded checkpoint on the paper's own held-out test stream and compare against the metrics
-    stored inside the checkpoint.
+    """Re-evaluate the loaded checkpoint on the held-out test stream and compare against the metrics stored inside
+    the checkpoint.
     """
     device = resolve_device(cfg.runtime.device)
     gate_scale_norm = np.asarray(clean_cache.gate_scale, dtype=np.float64) / float(clean_cache.global_scale)

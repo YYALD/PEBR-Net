@@ -63,7 +63,8 @@ CDM-R removed, E-GSR removed and the no-continuation baseline. The results are w
 - `--device auto|cpu|cuda|cuda:N`: `auto` takes the CUDA device with the most free memory, or the CPU.
 - `--informative_continuation on|off` (default off): continuation beyond the last informative gate (manuscript
   Section 3.1).
-- `--gate_loss_rate_bound input`: the rate bound of Eq. 4 on the continued gates (off by default).
+- `--gate_loss_rate_bound input`: the rate bound of Eq. A5 (the envelope of Eq. 4) on the continued gates (off by
+  default).
 - `--seed` fixes data sampling and initialisation. GPU kernels are not bit-deterministic unless `--deterministic`
   is given.
 - `python -m pebrnet --help` lists every option.

@@ -1,4 +1,4 @@
-# PEBR-Net -- prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+# PEBR-Net, the prior- and evidence-bounded reconstruction network.
 # MIT License, see LICENSE.
 """Paired dataset ingestion, gate axes, caches, splits and split audits.
 

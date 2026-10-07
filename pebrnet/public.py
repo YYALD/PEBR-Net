@@ -1,4 +1,4 @@
-# PEBR-Net -- prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses.
+# PEBR-Net, the prior- and evidence-bounded reconstruction network.
 # MIT License, see LICENSE.
 """Command-line front end, the figure package and the dataset section figure.
 
@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = _build_parser_full()
     p.prog = "pebrnet"
     p.description = (
-        "PEBR-Net: prior- and evidence-bounded reconstruction of noise-buried late-time borehole TEM responses. "
+        "PEBR-Net, the prior- and evidence-bounded reconstruction network. "
         "Modes: train (train and test), all (train, test and the figure package), figures (figure package from a "
         "checkpoint), gateloss (gate-loss cohort from a checkpoint), diagnose, audit (read the data, build the split "
         "and run the data audits). Arguments can be read from files: pebrnet @configs/train.args")
