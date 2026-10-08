@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- CDM-R during training: the calibrated posterior is computed on the host in float64, whatever the device; a
+  continuation that is not finite, or leaves the network's z-domain on a withheld gate, takes the uncalibrated
+  continuation; the withheld-gate output stays in that domain (`tests/test_cdmr_guard.py`).
+- Start-up check: a failure on the gradients is diagnosed (loss terms, parameters, rows) and the step is retried in
+  float32 and on one card; the first configuration that passes is used for the run.
 - Two-card training: when a batch's withheld gates fell on one card's share only, the cards returned different
   outputs and the gather stopped with `KeyError: 'gate_loss_fill_z'`. The forward now returns the same outputs on
   every card, the gather names any difference, and the start-up check compares a two-card gate-loss forward with one

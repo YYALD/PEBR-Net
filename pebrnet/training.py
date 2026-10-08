@@ -5137,7 +5137,12 @@ def gradient_group_audit(model: "PEBRNet", loss_fn: "ProjectLoss", lo: Mapping[s
             return float("nan")
         return float((va * vb).sum() / (va.norm() * vb.norm()))
     if not math.isfinite(tn) or tn <= 0.0:
-        raise RuntimeError("total gradient on the shared trunk is zero or non-finite")
+        _fin = torch.isfinite(gt)
+        raise RuntimeError("total gradient on the shared trunk is %s | by group: %s | non-finite elements %d of %d, largest "
+                           "finite |g| %.3e" % ("zero" if tn == 0.0 else "non-finite (%r)" % tn,
+                                                " ".join("%s %.3e" % kv for kv in norms.items()),
+                                                int((~_fin).sum()), int(gt.numel()),
+                                                float(gt[_fin].abs().max()) if bool(_fin.any()) else float("nan")))
     _LAST_GRAD_GROUP_NORMS.clear()
     _LAST_GRAD_GROUP_NORMS.update(norms)
     _LAST_GRAD_GROUP_NORMS["total"] = tn
@@ -5152,6 +5157,127 @@ def gradient_group_audit(model: "PEBRNet", loss_fn: "ProjectLoss", lo: Mapping[s
 
 
 _LAST_GRAD_GROUP_NORMS: Dict[str, float] = {}
+
+
+def is_gradient_failure(exc: BaseException) -> bool:
+    """The P3 step failed on its gradients, not on memory: the group audit, a non-finite gradient after the backward,
+    or a non-finite loss term.
+    """
+    s = str(exc)
+    return "gradient-share audit FAILED" in s or "NON-FINITE GRADIENT" in s or "non-finite loss components" in s
+
+
+def p3_recovery_plan(two_cards: bool, amp: bool, tf32: bool, cuda: bool) -> List[Tuple[str, bool, bool, bool]]:
+    """The configurations P3 retries, in order, after its step failed on the gradients: (name, keep the two-card
+    wrapper, autocast, TF32).
+    """
+    plan: List[Tuple[str, bool, bool, bool]] = []
+    reduced = bool(cuda and (amp or tf32))
+    if reduced:
+        plan.append(("float32 without TF32" + (" on the two cards" if two_cards else ""), bool(two_cards), False, False))
+    if two_cards:
+        plan.append(("one card" + (", float32 without TF32" if reduced else ""), False,
+                     False if reduced else bool(amp), False if reduced else bool(tf32)))
+    return plan
+
+
+def apply_p3_configuration(cfg: Config, device: torch.device, wrapper: Optional[nn.Module], amp: bool,
+                               tf32: bool) -> None:
+    """Put a configuration in force for the rest of the run: the two-card wrapper (or none), autocast (read by every
+    epoch from cfg.train.amp) and TF32.
+    """
+    _DP_STATE["wrapper"] = wrapper
+    cfg.train.amp = bool(amp)
+    cfg.train.allow_tf32 = bool(tf32)
+    if device.type == "cuda":
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = bool(tf32)
+            torch.backends.cudnn.allow_tf32 = bool(tf32)
+            torch.set_float32_matmul_precision("high" if tf32 else "highest")
+        except Exception:
+            pass
+
+
+def diagnose_trunk_gradient(model: nn.Module, loss_fn: Any, b: Mapping[str, Any], device: torch.device, cfg: Config,
+                                time_budget_s: float = 240.0) -> str:
+    """The P3 step again under the configuration in force, taken apart: the rows by training arm, the CDM-R fill on
+    the withheld gates.
+    """
+    t0 = time.time()
+    parts: List[str] = []
+    was = bool(model.training)
+    try:
+        model.train()
+        model.zero_grad(set_to_none=True)
+        with amp_autocast_context(device, bool(cfg.train.amp and device.type == "cuda")):
+            o = forward_training_arms(model, b)
+            lo = loss_fn(o, b, "A")
+        shared = {id(p) for p in (model.shared_parameters() if hasattr(model, "shared_parameters") else model.parameters())}
+        named = [(n, p) for n, p in model.named_parameters() if p.requires_grad and id(p) in shared]
+        params = [p for _, p in named]
+        B = int(b["noisy"].shape[0])
+        om = b.get("obs_mask")
+        arms: Dict[str, torch.Tensor] = {}
+        if isinstance(om, torch.Tensor) and int(om.shape[0]) == B:
+            arms["withheld gates"] = (om.reshape(B, -1) < 0.5).any(dim=1)
+        for k, nm in (("survey_row", "survey"), ("sim_row", "simulated noise"), ("has_alt", "alternate arm"),
+                      ("has_anomaly", "background arm")):
+            v = b.get(k)
+            if isinstance(v, torch.Tensor) and v.numel() == B:
+                arms[nm] = v.reshape(B) > 0
+        v = b.get("inject_snr_db")
+        if isinstance(v, torch.Tensor) and v.numel() == B:
+            arms["library injection"] = torch.isfinite(v.reshape(B).float())
+        parts.append("rows %d (%s)" % (B, ", ".join("%s %d" % (k, int(t.sum())) for k, t in arms.items())))
+        zf = o.get("gate_loss_fill_z")
+        if isinstance(zf, torch.Tensor) and isinstance(om, torch.Tensor) and om.numel() == zf.numel():
+            sel = om.reshape(zf.shape) < 0.5
+            if bool(sel.any()):
+                fv = zf.detach().float()[sel]
+                fin = torch.isfinite(fv)
+                parts.append("CDM-R fill on the withheld gates: %d values, non-finite %d, max |z| %.4g" % (
+                    int(fv.numel()), int((~fin).sum()), float(fv[fin].abs().max()) if bool(fin.any()) else float("nan")))
+        parts.append("CDM-R guard so far %s" % dict(_CDMR_GUARD))
+        outs = [(k, o[k]) for k in ("denoised", "z_hat", "denoised_bg", "denoised_alt")
+                if isinstance(o.get(k), torch.Tensor) and o[k].requires_grad and int(o[k].shape[0]) == B]
+        if outs:
+            gos = torch.autograd.grad(lo["total"], [t for _, t in outs], retain_graph=True, allow_unused=True)
+            for (k, _), g in zip(outs, gos):
+                if g is None:
+                    continue
+                badr = ~torch.isfinite(g.reshape(B, -1)).all(dim=1)
+                parts.append("rows with a non-finite gradient on %s: %d%s" % (k, int(badr.sum()), (" (%s)" % ", ".join(
+                    "%s %d" % (nm, int((badr & t).sum())) for nm, t in arms.items())) if bool(badr.any()) else ""))
+            del gos
+        gt = torch.autograd.grad(lo["total"], params, retain_graph=True, allow_unused=True)
+        nf_t = [n for (n, _), g in zip(named, gt) if g is not None and not bool(torch.isfinite(g).all())]
+        big = max([float(g.detach().float().abs().max()) for g in gt
+                   if g is not None and g.numel() > 0 and bool(torch.isfinite(g).all())] or [0.0])
+        parts.append("trunk tensors %d: non-finite gradient %d (%s), no gradient %d, largest finite |g| %.3e" % (
+            len(named), len(nf_t), ", ".join(nf_t[:4]), sum(1 for g in gt if g is None), big))
+        del gt
+        bad_terms: List[str] = []
+        checked, stopped = 0, False
+        for k, v in lo.items():
+            if k == "total" or not (isinstance(v, torch.Tensor) and v.ndim == 0 and v.requires_grad):
+                continue
+            if time.time() - t0 > float(time_budget_s):
+                stopped = True
+                break
+            gs = torch.autograd.grad(v, params, retain_graph=True, allow_unused=True)
+            checked += 1
+            nf = sum(1 for g in gs if g is not None and not bool(torch.isfinite(g).all()))
+            if nf:
+                bad_terms.append("%s (value %.4g, %d tensors)" % (k, float(v.detach()), nf))
+            del gs
+        parts.append("loss terms with a non-finite trunk gradient: %s (%d checked%s)" % (
+            ", ".join(bad_terms[:8]) or "none", checked, ", time limit reached" if stopped else ""))
+    except Exception as exc:
+        parts.append("diagnosis stopped: %r" % (exc,))
+    finally:
+        model.zero_grad(set_to_none=True)
+        model.train(was)
+    return " | ".join(parts)
 
 
 def gradient_audit_on_loader(model: "PEBRNet", loss_fn: "ProjectLoss", train_loader: Any,
@@ -5349,11 +5475,37 @@ def preflight_self_test(model: "PEBRNet", loss_fn: "ProjectLoss", train_loader: 
         _halved = 0
         _bench_off = False
         _ids = _training_card_ids(device) if device.type == "cuda" else []
+        _cfg = (_DP_STATE.get("wrapper"), bool(cfg.train.amp), bool(getattr(cfg.train, "allow_tf32", True)))
+        _plan: Optional[List[Tuple[str, bool, bool, bool]]] = None
+        _fail = ""
+        _now = ""
         while True:
+            if _fail:
+                model.zero_grad(set_to_none=True)
+                free_cuda_after_oom()
+                if _plan is None:
+                    _plan = p3_recovery_plan(_cfg[0] is not None, _cfg[1], _cfg[2], device.type == "cuda")
+                    _diag = diagnose_trunk_gradient(model, loss_fn, b, device, cfg)
+                    free_cuda_after_oom()
+                    logger.error("P3 FAILED ON THE GRADIENTS at %d rows: %s | DIAGNOSIS: %s | retries in order: %s. ", int(b["clean"].shape[0]), _fail,
+                                 _diag, "; ".join(n for n, _, _, _ in _plan) or "none")
+                else:
+                    logger.error("P3 with %s failed as well: %s", _now, _fail)
+                if not _plan:
+                    apply_p3_configuration(cfg, device, *_cfg)
+                    raise RuntimeError("%s | no configuration passes P3 (diagnosis above)" % _fail)
+                _now, _two, _amp, _tf = _plan.pop(0)
+                apply_p3_configuration(cfg, device, _cfg[0] if _two else None, _amp, _tf)
+                logger.warning("P3 retried with %s.", _now)
+                _fail = ""
             try:
                 for _i in _ids:
                     torch.cuda.reset_peak_memory_stats(torch.device("cuda", int(_i)))
                 msg = _p3_once(b)
+                if _now:
+                    logger.critical("P3 PASSES with %s: THE RUN TRAINS THIS WAY (the configured run failed on the "
+                                    "gradients; the diagnosis above names where).", _now)
+                    msg = "%s | passed with %s after the configured run failed on the gradients" % (msg, _now)
                 if _halved:
                     msg = "%s | OOM at %d rows -> ran at %d rows after %d halving(s); micro-batch pinned to %d for the run" % (
                         msg, _B, int(b["clean"].shape[0]), _halved, int(b["clean"].shape[0]))
@@ -5362,6 +5514,11 @@ def preflight_self_test(model: "PEBRNet", loss_fn: "ProjectLoss", train_loader: 
                 return msg
             except Exception as _e:
                 if not is_oom_error(_e):
+                    if is_gradient_failure(_e):
+                        _fail = repr(_e)
+                        continue
+                    if _plan is not None:
+                        apply_p3_configuration(cfg, device, *_cfg)
                     raise
                 if is_engine_search_failure(_e) and not _bench_off and device.type == "cuda":
                     _short = memory_is_short(_ids)
@@ -6140,6 +6297,142 @@ def linear_information_ladder(clean_mm: Any, noisy_path: str, province_id: np.nd
     return out
 
 
+CDMR_CACHE_MAX = 256
+CDMR_Z_MAX = 16.0
+_CDMR_GUARD: Dict[str, int] = {"calls": 0, "traces": 0, "zeroed": 0, "jitter": 0}
+
+
+class CdmrFactorCache:
+    """Lru of CDM-R factorisations (host, float64) under a lock: the two-card replicas share it (their __dict__ is a
+    shallow copy of the model's) and call it from their own threads.
+    """
+
+    def __init__(self, max_items: int = CDMR_CACHE_MAX) -> None:
+        self.max_items = int(max_items)
+        self.items: "OrderedDict[Any, Any]" = OrderedDict()
+        self.lock = threading.Lock()
+
+    def get(self, key: Any) -> Any:
+        with self.lock:
+            v = self.items.get(key)
+            if v is not None:
+                self.items.move_to_end(key)
+            return v
+
+    def put(self, key: Any, value: Any) -> None:
+        with self.lock:
+            self.items[key] = value
+            self.items.move_to_end(key)
+            while len(self.items) > self.max_items:
+                self.items.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __deepcopy__(self, memo: Any) -> "CdmrFactorCache":
+        return CdmrFactorCache(self.max_items)
+
+    def __getstate__(self) -> Dict[str, Any]:
+        return {"max_items": self.max_items}
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.__init__(int(state.get("max_items", CDMR_CACHE_MAX)))
+
+
+def _at_decade(n: int) -> bool:
+    n = int(n)
+    while n >= 10 and n % 10 == 0:
+        n //= 10
+    return n == 1
+
+
+def chol_jitter(A: torch.Tensor) -> torch.Tensor:
+    """Cholesky factor of a symmetric positive-definite matrix (or batch), the same as torch.linalg.cholesky whenever
+    that succeeds; when it fails.
+    """
+    L, info = torch.linalg.cholesky_ex(A)
+    if bool((info == 0).all()) and bool(torch.isfinite(L).all()):
+        return L
+    eye = torch.eye(int(A.shape[-1]), dtype=A.dtype, device=A.device)
+    scale = torch.diagonal(A, dim1=-2, dim2=-1).abs().mean(dim=-1)[..., None, None].clamp_min(1e-300)
+    for k in range(10):
+        L, info = torch.linalg.cholesky_ex(A + scale * (10.0 ** (k - 12)) * eye)
+        if bool((info == 0).all()) and bool(torch.isfinite(L).all()):
+            _CDMR_GUARD["jitter"] += 1
+            if _at_decade(_CDMR_GUARD["jitter"]):
+                logging.getLogger(PROGRAM_NAME).warning(
+                    "a CDM-R factorisation needed a diagonal jitter of %.0e of its mean diagonal (%d so far). ", 10.0 ** (k - 12), _CDMR_GUARD["jitter"])
+            return L
+    raise RuntimeError("Cholesky failed even with a diagonal jitter of 1e-3 of the mean diagonal")
+
+
+def calibration_identity(C0: torch.Tensor, Rm: torch.Tensor, V: torch.Tensor, Pinv: torch.Tensor,
+                             levels: Sequence[float]) -> str:
+    """SHA-1 of everything the CDM-R factorisations depend on besides the pattern (host tensors)."""
+    h = hashlib.sha1(repr([float(s) for s in levels]).encode("ascii"))
+    for t in (C0, torch.diagonal(Rm), V, Pinv):
+        h.update(repr(tuple(t.shape)).encode("ascii"))
+        h.update(t.detach().contiguous().numpy().tobytes())
+    return h.hexdigest()
+
+
+def cdmr_implausible(z: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
+    """Per trace [B, K+1]: a withheld gate (m < 0.5) of the regeneration z [B, K+1, T] is not finite or lies outside
+    the network's z-domain (|z| > CDMR_Z_MAX).
+    """
+    ok = (torch.isfinite(z) & (z.abs() <= CDMR_Z_MAX)) | (m > 0.5)
+    return ~ok.all(dim=-1)
+
+
+def note_cdmr_guard(n_bad: int, n_zeroed: int, n_all: int) -> None:
+    """Count the regenerations the guard replaced; log at the 1st, 10th, 100th ..."""
+    _CDMR_GUARD["calls"] += 1
+    _CDMR_GUARD["traces"] += int(n_bad)
+    _CDMR_GUARD["zeroed"] += int(n_zeroed)
+    if _at_decade(_CDMR_GUARD["calls"]):
+        logging.getLogger(PROGRAM_NAME).warning(
+            "CDM-R GUARD (call %d): %d of %d regenerated traces were not finite or left |z| <= %g on a withheld "
+            "gate; they take the uncalibrated continuation (%d left it too: their withheld gates carry nothing) | so far "
+            "%d traces, %d with nothing.",
+            _CDMR_GUARD["calls"], int(n_bad), int(n_all), CDMR_Z_MAX, int(n_zeroed),
+            _CDMR_GUARD["traces"], _CDMR_GUARD["zeroed"])
+
+
+def cdmr_device_check(base: nn.Module, za: torch.Tensor, m: torch.Tensor, log: logging.Logger,
+                          dev: Optional[torch.device] = None) -> Optional[float]:
+    """On an accelerator, once at installation: the calibrated posterior of a few training records computed on the
+    device and on the host, compared on the withheld gates.
+    """
+    if dev is None:
+        dev = base.cdmr_ncov.device
+        if dev.type == "cpu":
+            return None
+    dev = torch.device(dev)
+    try:
+        with torch.no_grad():
+            za = za.to(device=dev, dtype=torch.float32)
+            m = m.to(device=dev, dtype=torch.float32)
+            zh = base._cdmr_mixture_posterior(za, m)
+            zd = base._cdmr_mixture_posterior(za, m, on=dev)
+        w = (m < 0.5).expand_as(zh)
+        h, d = zh[w].double().cpu(), zd[w].double().cpu()
+        fin = torch.isfinite(d)
+        diff = float((d[fin] - h[fin]).abs().max()) if bool(fin.any()) else float("inf")
+        bad = bool((~fin).any()) or diff > 1e-3 * max(1.0, float(h.abs().max()))
+        tails = sorted({int(v) for v in (m[:, 0] < 0.5).sum(dim=-1).tolist()})
+        (log.warning if bad else log.info)(
+            "DEVICE FLOAT64 CHECK on %s: the calibrated CDM-R posterior of %d training records (withheld tails "
+            "of %s gates) computed on the device %s the host's: largest difference on the withheld gates %.3g, non-finite "
+            "%d of %d, largest |z| host %.3g / device %.3g. Training uses the host's.", str(dev), int(za.shape[0]),
+            "/".join(str(t) for t in tails), "DIFFERS FROM" if bad else "agrees with", diff, int((~fin).sum()),
+            int(d.numel()), float(h.abs().max()), float(d[fin].abs().max()) if bool(fin.any()) else float("nan"))
+        return diff
+    except Exception as exc:
+        log.warning("DEVICE FLOAT64 CHECK on %s could not run the device computation (%r); training uses the "
+                    "host's.", str(dev), exc)
+        return None
+
+
 def manifold_digest(base: nn.Module, names: Sequence[str] = ("lib_mu", "lib_basis")) -> str:
     """SHA-256 of the bytes of the named manifold buffers (float32, C order): the same on every device and in every
     replica, unlike a float32 sum rounded to six decimals.
@@ -6253,6 +6546,7 @@ def install_cdmr_calibration(model: nn.Module, cfg: Config, clean_cache: CleanCa
         base.cdmr_var.copy_(torch.as_tensor(var_f, dtype=torch.float32))
         base.cdmr_ready.fill_(1.0)
     base._cdmr_sig = cdmr_basis_signature(base)
+    base._cdmr_cache = CdmrFactorCache()
     sd = np.sqrt(np.diag(cov))
     corr = cov / np.maximum(np.outer(sd, sd), 1e-30)
     log.info("CDM-R CALIBRATION installed in %.1f s | noise covariance of the working coordinate from %d "
@@ -6261,6 +6555,13 @@ def install_cdmr_calibration(model: nn.Module, cfg: Config, clean_cache: CleanCa
              time.time() - t0, int(dz.shape[0]), float(mad.min()), float(mad.max()),
              float(np.median(np.diag(corr, k=1))), int(pis.size), int(keep.sum()), int(A.shape[0]),
              ", ".join("%g" % float(v) for v in (getattr(cfg.model, "cdmr_noise_levels", (1.0,)) or (1.0,))))
+    if base.cdmr_ncov.device.type != "cpu":
+        _zr = torch.as_tensor(_z(nm[rows[:48]]), dtype=torch.float32).unsqueeze(1).repeat(3, 1, 1)
+        _mk = torch.ones_like(_zr)
+        _T = int(_mk.shape[-1])
+        for _i, _f in enumerate((0.2, 0.4, 0.6)):
+            _mk[48 * _i:48 * (_i + 1), :, _T - max(1, int(round(_f * _T))):] = 0.0
+        cdmr_device_check(base, _zr, _mk, log)
     return True
 
 

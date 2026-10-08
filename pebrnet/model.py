@@ -1106,46 +1106,45 @@ class PEBRNet(nn.Module):
         sig = getattr(self, "_cdmr_sig", None)
         return sig is not None and sig == cdmr_basis_signature(self)
 
-    def _cdmr_mixture_posterior(self, za: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
+    def _cdmr_mixture_posterior(self, za: torch.Tensor, m: torch.Tensor,
+                                    on: Optional[torch.device] = None) -> torch.Tensor:
         B, K1, T = za.shape
         f64 = torch.float64
-        Vf = self.lib_basis.to(dtype=f64)
+        host = torch.device("cpu") if on is None else torch.device(on)
+        dev, dt = za.device, za.dtype
+
+        def _h(t: torch.Tensor) -> torch.Tensor:
+            return t.detach().to(device=host, dtype=f64)
+        Vf = _h(self.lib_basis)
         keep = Vf.abs().sum(dim=1) > 0
         V = Vf[keep]
-        mu = self.lib_mu.to(dtype=f64).reshape(-1)
-        C0 = self.cdmr_ncov.to(dtype=f64)
-        Rm = torch.diag((self.lib_resfam.to(dtype=f64).reshape(-1) / 1.96).pow(2).clamp_min(1e-10))
-        use = self.cdmr_pi > 0
-        lpi = torch.log(self.cdmr_pi[use].to(dtype=f64))
-        gm = self.cdmr_mu.to(dtype=f64)[use][:, keep]
-        gv = self.cdmr_var.to(dtype=f64)[use][:, keep].clamp_min(1e-12)
+        mu = _h(self.lib_mu).reshape(-1)
+        C0 = _h(self.cdmr_ncov)
+        Rm = torch.diag((_h(self.lib_resfam).reshape(-1) / 1.96).pow(2).clamp_min(1e-10))
+        pi = _h(self.cdmr_pi)
+        use = pi > 0
+        lpi = torch.log(pi[use])
+        gm = _h(self.cdmr_mu)[use][:, keep]
+        gv = _h(self.cdmr_var)[use][:, keep].clamp_min(1e-12)
         Pinv = 1.0 / gv
         logdetP = torch.log(gv).sum(dim=-1)
         levels = [float(s) for s in (getattr(self.cfg, "cdmr_noise_levels", (1.0,)) or (1.0,))]
-        z = za.to(dtype=f64).reshape(B * K1, T)
-        rec = (m[:, 0] > 0.5).to(torch.uint8).unsqueeze(1).expand(B, K1, T).reshape(B * K1, T)
+        z = za.to(device=host, dtype=f64).reshape(B * K1, T)
+        rec = (m[:, 0] > 0.5).detach().to(device=host, dtype=torch.uint8).unsqueeze(1).expand(B, K1, T).reshape(B * K1, T)
         out = z.clone()
         pats, inv = torch.unique(rec.cpu(), dim=0, return_inverse=True)
-        inv = inv.to(device=z.device)
+        inv = inv.to(device=host)
+        ident = calibration_identity(C0, Rm, V, Pinv, levels) if on is None else ""
         for p in range(int(pats.shape[0])):
             n_rec = int(pats[p].sum())
             if n_rec == T:
                 continue
-            mp = pats[p].to(device=z.device, dtype=f64)
+            mp = pats[p].to(device=host, dtype=f64)
             sel_all = torch.nonzero(inv == p).reshape(-1)
             if n_rec == 0:
                 out[sel_all] = mu + (torch.softmax(lpi, dim=0).unsqueeze(1) * gm).sum(dim=0) @ V
                 continue
-            mm = mp.view(-1, 1) * mp.view(1, -1)
-            facts = []
-            for s in levels:
-                L = torch.linalg.cholesky(((s * s) * C0 + Rm) * mm + torch.diag(1.0 - mp))
-                Lam = torch.cholesky_inverse(L) * mm
-                A = V @ Lam @ V.T
-                Lg = torch.linalg.cholesky(A.unsqueeze(0) + torch.diag_embed(Pinv))
-                facts.append((Lam, A, torch.cholesky_inverse(Lg),
-                              2.0 * torch.log(torch.diagonal(L)).sum(),
-                              2.0 * torch.log(torch.diagonal(Lg, dim1=-2, dim2=-1)).sum(dim=-1)))
+            facts = self._cdmr_factors(ident, pats[p], mp, C0, Rm, V, Pinv, levels, cached=on is None)
             for c0 in range(0, int(sel_all.numel()), 4096):
                 sel = sel_all[c0:c0 + 4096]
                 d = (z[sel] - mu) * mp
@@ -1164,15 +1163,49 @@ class PEBRNet(nn.Module):
                 w = torch.softmax(torch.cat(logws, dim=1), dim=1)
                 a = (w.unsqueeze(-1) * torch.cat(means, dim=1)).sum(dim=1)
                 out[sel] = mu + a @ V
-        return out.reshape(B, K1, T).to(dtype=za.dtype)
+        return out.reshape(B, K1, T).to(device=dev, dtype=dt)
+
+    def _cdmr_factors(self, ident: str, pat: torch.Tensor, mp: torch.Tensor, C0: torch.Tensor, Rm: torch.Tensor,
+                          V: torch.Tensor, Pinv: torch.Tensor, levels: Sequence[float],
+                          cached: bool = True) -> List[Tuple[torch.Tensor, ...]]:
+        cache = getattr(self, "_cdmr_cache", None) if cached else None
+        key = (ident, pat.contiguous().numpy().tobytes())
+        if cache is not None:
+            hit = cache.get(key)
+            if hit is not None:
+                return hit
+        mm = mp.view(-1, 1) * mp.view(1, -1)
+        facts = []
+        for s in levels:
+            L = chol_jitter(((s * s) * C0 + Rm) * mm + torch.diag(1.0 - mp))
+            Lam = torch.cholesky_inverse(L) * mm
+            A = V @ Lam @ V.T
+            Lg = chol_jitter(A.unsqueeze(0) + torch.diag_embed(Pinv))
+            facts.append((Lam, A, torch.cholesky_inverse(Lg),
+                          2.0 * torch.log(torch.diagonal(L)).sum(),
+                          2.0 * torch.log(torch.diagonal(Lg, dim1=-2, dim2=-1)).sum(dim=-1)))
+        if cache is not None:
+            cache.put(key, facts)
+        return facts
 
     def cdmr_continuation(self, za: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
         """Conditional decay-manifold regeneration of every trace of a stack from its recorded gates."""
-        B, K1, T = za.shape
         za = za.float()
         m = m.float()
         if self.cdmr_calibrated_ready():
-            return self._cdmr_mixture_posterior(za, m)
+            out = self._cdmr_mixture_posterior(za, m)
+            bad = cdmr_implausible(out, m)
+            if bool(bad.any()):
+                alt = self._cdmr_uncalibrated(za, m)
+                bad2 = bad & cdmr_implausible(alt, m)
+                held = torch.where(m > 0.5, za, torch.zeros_like(za))
+                out = torch.where(bad.unsqueeze(-1), torch.where(bad2.unsqueeze(-1), held, alt), out)
+                note_cdmr_guard(int(bad.sum()), int(bad2.sum()), int(bad.numel()))
+            return out
+        return self._cdmr_uncalibrated(za, m)
+
+    def _cdmr_uncalibrated(self, za: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
+        B, K1, T = za.shape
         if (getattr(self, "lib_basis", None) is not None and float(self.lib_ready.item()) > 0.5
                 and float(self.lib_basis.abs().sum().item()) > 0.0):
             V = self.lib_basis.float()
@@ -1272,6 +1305,7 @@ class PEBRNet(nn.Module):
         zf = gl["z_fill"].to(device=z_hat.device, dtype=torch.float32)
         if trace_scale is not None:
             zf = signed_symlog(signed_symexp(zf) * trace_scale.float())
+        zf = zf.clamp(-CDMR_Z_MAX, CDMR_Z_MAX)
         n_rec = m.sum(dim=-1, keepdim=True)
         k = (torch.arange(T, device=z_hat.device).view(1, 1, -1).float() - n_rec).clamp(0, T - 1).long()
         g = torch.sigmoid(self.gl_departure_logit.float())[k]
