@@ -1,0 +1,15 @@
+# Train PEBR-Net on the paired dataset with the default training parameters of the program (docs/training.md), test it on
+# the held-out profiles and render the figure package. A CUDA GPU is strongly recommended (docs/training.md).
+# usage:  python scripts/download_data.py --from <downloaded dataset>
+#         python -m pebrnet @configs/train.args
+--mode all
+--paired_dir data/paired
+--device auto
+# the full network, trained from random initialisation
+--confirm_full_from_scratch
+# every held-out test profile enters the gate-loss cohort of the figure package
+--gate_loss_profiles 0
+--output_root runs/train/output
+--model_root runs/train/model
+--plot_root runs/train/figures
+--log_root runs/train/logs

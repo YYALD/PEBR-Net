@@ -1,0 +1,33 @@
+# the dataset (downloaded by scripts/download_data.py), checkpoints and run products
+data/*
+!data/README.md
+!data/paired.sha256
+!data/paired_content.json
+!data/sources.json
+checkpoints/
+runs/
+output/
+model/
+plot/
+log/
+*.pt
+*.pth
+*.npy
+*.npz
+
+*.log
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

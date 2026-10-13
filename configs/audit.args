@@ -1,0 +1,10 @@
+# Read the paired dataset, build the split and run the data audits.
+# No training; a few minutes on a CPU.
+# usage:  python -m pebrnet @configs/audit.args
+--mode audit
+--paired_dir data/paired
+--device cpu
+--output_root runs/audit/output
+--model_root runs/audit/model
+--plot_root runs/audit/figures
+--log_root runs/audit/logs

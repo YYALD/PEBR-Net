@@ -1,0 +1,6 @@
+# text files are stored with LF line endings; figures are binary
+* text=auto eol=lf
+*.png binary
+*.pdf binary
+*.pt binary
+*.zip binary
