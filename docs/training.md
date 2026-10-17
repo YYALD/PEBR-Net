@@ -33,8 +33,8 @@ Any stage also ends, with its best weights restored, when its smoothed validatio
 times its best for 12 consecutive validations (counted after epoch 50 in stage A and after epoch 12 in stages B and C).
 
 Three smaller groups follow their own rules. The per-gate prior standard deviation (`prior_log_sigma`) is trained
-at 20 × base in every stage, without weight decay. The lateral-prior parameters follow the trunk's rate, without
-weight decay. The uncertainty head follows the router.
+at 20 × base in every stage, without weight decay. The lateral-prior parameters (the strength per gate and the head that
+sets the strength of each station) follow the trunk's rate, without weight decay. The uncertainty head follows the router.
 
 If a constraint target is still not met on validation after stage C, up to two remediation rounds follow. Each raises
 the multipliers of the failing constraints and trains 12 more epochs with the stage-C groups at 0.25 × their rate

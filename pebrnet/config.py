@@ -254,6 +254,8 @@ class ModelConfig:
     lateral_joint_boundary_reflect: bool = False
     lateral_event_licence: float = 1.0
     lateral_event_licence_p0: float = 0.1
+    lateral_joint_form: str = "station"
+    lateral_strength_bias_init: float = -2.0
     lateral_two_scale: bool = False
     lateral_wide_multiplier: float = 12.0
     lateral_coherence_kappa: float = 3.0
@@ -462,6 +464,7 @@ class LossConfig:
     alpha_profile_d2: float = 0.25
     alpha_profile_newext: float = 0.25
     alpha_profile_multigate: float = 0.15
+    alpha_lateral_balanced: float = 1.0
     alpha_reliability: float = 0.20
     alpha_correction: float = 0.10
     alpha_correction_global: float = 0.02

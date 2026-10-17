@@ -12,7 +12,7 @@ refer to the manuscript.
 |---|---|
 | Signed logarithmic coordinate normalized by a robust per-gate scale; reported quantities in the linear response domain (Section 3.1) | `gate_scale_norm`, `signed_symlog` / `signed_symexp`; reported errors are computed in physical units |
 | Normalized log-time and square-root-time channels, convolutional trunk and multiscale dilated residual trunk (Section 3.4) | `_build_position_channels`, `DualDomainStem`, `MultiScaleTemporalBlock`, `ResidualRefinementStack` |
-| Depth pooling as cross-trace attention (Section 3.4) | `NeighborCrossAttention`, `ProfileJointEncoder`, `LateralJointPrior` |
+| Depth pooling as cross-trace attention (Section 3.4) | `NeighborCrossAttention`, `ProfileJointEncoder`, `LateralJointPrior` (its strength is learned for each station by `lateral_strength_head`) |
 | CDM-R: relaxation state on the grid of Eq. 3 (Sections 3.2 and 3.4) | the fixed dictionary `decay_atoms` (24 time constants spaced logarithmically from a third of the first positive gate time to three times the last gate time; stretching exponents 1, 0.8 and 0.6) with non-negative weights; `cdmr_continuation` continues each decay from its own recorded gates and `_gate_loss_fill` passes the continuation to the network (`forward(..., obs_mask=...)`); on withheld gates `_withheld_departure` lets the output depart from the continuation by a learned share |
 | Continuation beyond the last informative gate (Section 3.1) | `--informative_continuation on` (off by default); `informative_mask` |
 | Rate bound of Eq. A5, which confines the continuation to the envelope of Eq. 4 | `_rate_bound`, optional (`--gate_loss_rate_bound input`), off by default |

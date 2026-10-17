@@ -518,7 +518,8 @@ class LateralJointPrior(nn.Module):
                 noise_kappa: float = 0.0, noise_cap: float = 1.0,
                 noise_sp0: float = 0.15,
                 lam_factor: Optional[torch.Tensor] = None,
-                floor_gate: Optional[torch.Tensor] = None) -> torch.Tensor:
+                floor_gate: Optional[torch.Tensor] = None,
+                learn_factor: bool = False) -> torch.Tensor:
         if profile_len is None:
             return z_hat
         P = int(profile_len)
@@ -542,7 +543,7 @@ class LateralJointPrior(nn.Module):
                         ).clamp(max=max(1.0, float(noise_cap)))
                 lam = lam * _fac.view(n, T, 1, 1)
             if lam_factor is not None:
-                _lf = lam_factor.detach().float().reshape(n, P, T).permute(0, 2, 1)
+                _lf = (lam_factor if learn_factor else lam_factor.detach()).float().reshape(n, P, T).permute(0, 2, 1)
                 lam = lam * _lf.unsqueeze(-1)
             _fl = float(getattr(self, "lam_floor_late", 0.0) or 0.0)
             if _fl > 0.0 and 0 <= int(self.late_start) < T:
@@ -679,6 +680,13 @@ class PEBRNet(nn.Module):
                 _mult = float(max(1.0, getattr(cfg, "lateral_wide_multiplier", 12.0)))
                 self.lateral_joint.log_lambda_wide.copy_(
                     torch.log(torch.expm1((_mult * F.softplus(self.lateral_joint.log_lambda)).clamp_min(1e-6))))
+        self.lateral_strength_head = None
+        if self.lateral_joint is not None and str(getattr(cfg, "lateral_joint_form", "learned")) == "station":
+            self.lateral_strength_head = nn.Sequential(
+                ConvGNAct(int(cfg.feature_channels) + 4, cfg.base_channels // 2, 3, groups=cfg.group_norm_groups),
+                nn.Conv1d(cfg.base_channels // 2, 1, 1),
+            )
+            self.lateral_joint.lam_floor_late = 0.0
         _pos_floor = (floor > 0).reshape(-1)
         _ls_i = int(_pos_floor.float().argmax().item()) if bool(_pos_floor.any()) else 0
         self._late_start_gate = _ls_i
@@ -985,6 +993,10 @@ class PEBRNet(nn.Module):
         if getattr(self, "pa_out", None) is not None:
             nn.init.zeros_(self.pa_out.weight)
             nn.init.zeros_(self.pa_out.bias)
+        if getattr(self, "lateral_strength_head", None) is not None:
+            nn.init.normal_(self.lateral_strength_head[-1].weight, std=0.02)
+            nn.init.constant_(self.lateral_strength_head[-1].bias,
+                              float(getattr(self.cfg, "lateral_strength_bias_init", -2.0)))
         if self.manifold_blend is not None:
             nn.init.zeros_(self.manifold_blend[-1].weight)
             nn.init.constant_(self.manifold_blend[-1].bias, -2.0)
@@ -2543,7 +2555,28 @@ class PEBRNet(nn.Module):
                                         strength=lateral_strength)
             _kdev = getattr(self.lateral_fp_out, "_last_dev", None)
             lateral_applied = True
-        if (self.lateral_joint is not None and profile_len is not None
+        if (self.lateral_strength_head is not None and profile_len is not None
+                and int(profile_len) > 2 and z_hat.shape[0] % int(profile_len) == 0):
+            with amp_autocast_context(x.device, enabled=False):
+                _P4 = int(profile_len)
+                _B = int(z_hat.shape[0])
+                _T5 = int(z_hat.shape[-1])
+                _zs = z_hat.detach().float().reshape(_B // _P4, _P4, _T5).permute(0, 2, 1)
+                _zs = F.pad(_zs, (1, 1), mode="replicate")
+                _d2800 = (_zs[..., 2:] - 2.0 * _zs[..., 1:-1] + _zs[..., :-2]).permute(0, 2, 1).reshape(_B, 1, _T5)
+                _zero = torch.zeros_like(_d2800)
+                _ev = event_logits is not None and event_logits.shape[0] == _B
+                _in = torch.cat([features.float(),
+                                    _lv.detach().float() if _lv is not None else _zero,
+                                    _lat.detach().float() if _ev else _zero,
+                                    event_logits.detach().float() if _ev else _zero,
+                                    _d2800], dim=1)
+                _m = 2.0 * torch.sigmoid(self.lateral_strength_head(_in))
+            self.lateral_joint.symmetric_form = bool(getattr(self.cfg, "lateral_joint_symmetric", True))
+            z_hat = self.lateral_joint(z_hat, _P4, None, lam_factor=_m, learn_factor=True)
+            lateral_applied = True
+            out_lambda_factor = _m
+        elif (self.lateral_joint is not None and profile_len is not None
                 and int(profile_len) > 2 and z_hat.shape[0] % int(profile_len) == 0):
             _w = None
             if (str(getattr(self.cfg, "lateral_joint_weighting", "uniform")) == "sigma"

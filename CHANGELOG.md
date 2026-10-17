@@ -34,6 +34,10 @@
   scaled it). The gate-loss report records the learned departure share by position in the withheld window.
 - Option `--event_evidence_normalization local_noise`: the E-GSR evidence in units of the local noise of the
   neighbourhood; the default keeps the fixed scale.
+- Lateral joint prior: its strength is learned for each station and gate from the network's features by a small head
+  trained through the solve, and a class-balanced loss weighs the lateral second differences of the rows that touch a
+  body and of the rows that do not equally; the strength has no fixed lower bound. `--lateral_joint_form learned` keeps
+  one learned strength per gate for every station; `--alpha_lateral_balanced` sets the weight of the loss.
 
 ## V1.0.0 (2026-10-07)
 

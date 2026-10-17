@@ -408,6 +408,15 @@ def _build_parser_full() -> argparse.ArgumentParser:
                    help="Disable the event-gated structured geological residual (ablation wo_event).")
     p.add_argument("--struct_residual_scale", type=float, default=None,
                    help="Bound (z units) of the structured residual (default 1.5).")
+    p.add_argument("--lateral_joint_form", choices=["station", "learned"], default=None,
+                   help="Strength of the lateral joint prior: learned per station and gate from the network's "
+                        "features (station, the default)")
+    p.add_argument("--lateral_strength_bias_init", type=float, default=None,
+                   help="Initial bias of the per-station strength head: m = 2 sigmoid(bias) at step 0 (default "
+                        "-2.0, m = 0.24).")
+    p.add_argument("--alpha_lateral_balanced", type=float, default=None,
+                   help="Weight of the class-balanced lateral structure loss (body and quiet rows count "
+                        "equally; default 1.0, 0 = off).")
     p.add_argument("--event_evidence_normalization", choices=["local_noise", "constant"], default=None,
                    help="E-GSR evidence on the fixed scale event_misfit_scale (constant, the default) or in "
                         "units of the local noise of the neighbourhood (local_noise).")
@@ -961,6 +970,12 @@ def config_from_args(args: argparse.Namespace) -> Config:
         cfg.model.use_event_residual = False
     if getattr(args, "struct_residual_scale", None) is not None:
         cfg.model.struct_residual_scale = max(0.0, float(args.struct_residual_scale))
+    if getattr(args, "lateral_joint_form", None):
+        cfg.model.lateral_joint_form = str(args.lateral_joint_form)
+    if getattr(args, "lateral_strength_bias_init", None) is not None:
+        cfg.model.lateral_strength_bias_init = float(args.lateral_strength_bias_init)
+    if getattr(args, "alpha_lateral_balanced", None) is not None:
+        cfg.loss.alpha_lateral_balanced = max(0.0, float(args.alpha_lateral_balanced))
     if getattr(args, "event_evidence_normalization", None):
         cfg.model.event_evidence_normalization = str(args.event_evidence_normalization)
     if getattr(args, "anomaly_profile_prob", None) is not None:

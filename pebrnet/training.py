@@ -1189,7 +1189,8 @@ def model_parameter_groups(model: PEBRNet, cfg: TrainConfig, stage: str) -> List
             }
         )
     _lat_params: List[nn.Parameter] = []
-    for _nm in ("lateral_joint", "profile_joint", "joint_inject", "lateral_fp_prior", "lateral_fp_out"):
+    for _nm in ("lateral_joint", "profile_joint", "joint_inject", "lateral_fp_prior", "lateral_fp_out",
+                "lateral_strength_head"):
         _mod = getattr(model, _nm, None)
         if _mod is not None:
             _lat_params.extend(list(_mod.parameters()))
@@ -2346,6 +2347,7 @@ def evaluate_model(
     _lrq = [0.0, 0.0, 0.0]
     _lrb = [0.0, 0.0, 0.0]
     _lrbeta = [0.0, 0.0, 0.0, 0.0]
+    _ls2 = [0.0, 0, 0.0, 0]
     _nf_sum = 0.0
     _nf_cnt = 0
     _eg_sum = 0.0
@@ -2547,6 +2549,16 @@ def evaluate_model(
                             _lrbeta[1] += float(_db.sum())
                             _lrbeta[2] += int(_hb9.sum())
                             _lrbeta[3] += int((_nb < 0.5 * _db.clamp_min(1e-30)).sum())
+                        _lf2 = outputs.get("lateral_lambda_factor")
+                        _lg2 = outputs.get("lateral_lambda")
+                        if _lf2 is not None and _lg2 is not None and int(_lf2.shape[0]) == int(_d9.shape[0]):
+                            _se = (_lf2.detach().float()[:, 0, _ls:]
+                                      * _lg2.detach().float().reshape(1, -1)[:, _ls:]).mean(dim=-1)
+                            _hr = _ha.detach().float().reshape(-1) > 0.5
+                            _ls2[0] += float(_se[_hr].sum())
+                            _ls2[1] += int(_hr.sum())
+                            _ls2[2] += float(_se[~_hr].sum())
+                            _ls2[3] += int((~_hr).sum())
                     if "lateral_applied" in outputs and float(outputs["lateral_applied"]) > 0.5:
                         _lat_applied += 1
             if "late_noise_floor" in outputs:
@@ -2873,6 +2885,10 @@ def evaluate_model(
         if _lrbeta[1] > 0 and _lrbeta[2] > 0:
             metrics["lateral_body_structure_beta"] = _lrbeta[0] / _lrbeta[1]
             metrics["lateral_body_erased_share"] = _lrbeta[3] / _lrbeta[2]
+        if _ls2[1] > 0:
+            metrics["lateral_strength_body"] = _ls2[0] / _ls2[1]
+        if _ls2[3] > 0:
+            metrics["lateral_strength_quiet"] = _ls2[2] / _ls2[3]
     if _lib_refq > 0.0:
         metrics["library_anchor_late_percent"] = 100.0 * math.sqrt(
             _lib_sq / max(_lib_refq, 1e-300))
@@ -3242,6 +3258,7 @@ ARCHITECTURE_FLAGS = (
     "lateral_event_licence", "lateral_event_licence_p0",
     "lateral_witness_gates_attention", "lateral_witness_dead_zone",
     "event_evidence_normalization", "event_noise_units", "event_noise_floor_z",
+    "lateral_joint_form",
 )
 
 
@@ -3262,6 +3279,7 @@ _PRE_135_ARCH_DEFAULTS = {
     "lateral_witness_gates_attention": False,
     "lateral_witness_dead_zone": 0.2,
     "event_evidence_normalization": "constant",
+    "lateral_joint_form": "learned",
 }
 
 
@@ -3395,6 +3413,12 @@ def load_checkpoint(
             model.import_pending_control(state.get("pending_control_updates"))
         missing = set(incompatible.missing_keys)
         unexpected = set(incompatible.unexpected_keys)
+        if any(k.startswith("lateral_strength_head.") for k in missing):
+            raise RuntimeError(
+                "%s was trained with one learned lateral strength per gate (lateral_joint_form 'learned') and "
+                "has no per-station strength head. Resume it with --lateral_joint_form learned, or start a "
+                "new run from its weights with --init_from (the head then starts at its initial value)."
+                 % path)
         if unexpected or not missing.issubset(allowed) or not missing:
             raise RuntimeError(
                 "Checkpoint does not match the model. Missing keys beyond the tolerated "
@@ -8540,8 +8564,8 @@ def train_model(
                         "(false structure) | BODY blocks out %.4f vs ref %.4f | precision w "
                         "low-SNR %.3f / high-SNR %.3f | lateral strength (1-r) low-SNR %.3f / "
                         "high-SNR %.3f | robust inflation mean %.2f tail-rate %.3f | output fusion "
-                        "w (early/mid) low-SNR %.3f / high-SNR %.3f | lambda factor (noise-head "
-                        "witness) low-SNR %.3f / high-SNR %.3f | BODY structure kept beta %.3f (body blocks "
+                        "w (early/mid) low-SNR %.3f / high-SNR %.3f | %s low-SNR %.3f / high-SNR %.3f | BODY "
+                        "structure kept beta %.3f (body blocks "
                         "with beta < 0.5: %.1f%%) | event licence mean %.3f (licensed %.1f%%) [nan = mechanism off].",
                         val_metrics["lateral_late_roughness_out_dex"],
                         val_metrics["lateral_late_roughness_ref_dex"],
@@ -8571,6 +8595,9 @@ def train_model(
                         float(val_metrics.get("innovation_robust_tail_rate", float("nan"))),
                         float(val_metrics.get("output_fusion_w_low_snr", float("nan"))),
                         float(val_metrics.get("output_fusion_w_high_snr", float("nan"))),
+                        ("lambda factor (noise-head witness)"
+                         if getattr(getattr(model, "module", model), "lateral_strength_head", None) is None
+                         else "learned strength factor m"),
                         float(val_metrics.get("lateral_lambda_factor_low_snr", float("nan"))),
                         float(val_metrics.get("lateral_lambda_factor_high_snr", float("nan"))),
                         float(val_metrics.get("lateral_body_structure_beta", float("nan"))),
@@ -8578,6 +8605,18 @@ def train_model(
                         float((getattr(getattr(model, "module", model), "_last_event_licence", None) or {}).get("mean", float("nan"))),
                         100.0 * float((getattr(getattr(model, "module", model), "_last_event_licence", None) or {}).get("licensed_share", float("nan"))),
                     )
+                    if getattr(getattr(model, "module", model), "lateral_strength_head", None) is not None:
+                        _sb = float(val_metrics.get("lateral_strength_body", float("nan")))
+                        _sq = float(val_metrics.get("lateral_strength_quiet", float("nan")))
+                        logger.info("LATERAL STRENGTH LEARNED PER STATION | in force on the late window (softplus(theta) "
+                                    "x m): body stations %.3g, quiet stations %.3g (body/quiet %.2f) | balanced lateral loss "
+                                    "weight %.2f | BODY structure kept beta %.3f | QUIET false structure %.4f vs reference %.4f "
+                                    "dex.",
+                                    _sb, _sq, _sb / _sq if _sq > 0 else float("nan"),
+                                    float(getattr(cfg.loss, "alpha_lateral_balanced", 0.0) or 0.0),
+                                    float(val_metrics.get("lateral_body_structure_beta", float("nan"))),
+                                    float(val_metrics.get("lateral_quiet_roughness_out_dex", float("nan"))),
+                                    float(val_metrics.get("lateral_quiet_roughness_ref_dex", float("nan"))))
                     _aw = getattr(getattr(model, "module", model), "_last_attention_witness", None)
                     if _aw is not None:
                         logger.info("attention witness (last batch): mean factor %.3f | stations routed to the single-trace "

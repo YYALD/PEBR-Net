@@ -704,9 +704,9 @@ class ProjectLoss(nn.Module):
                         _gap = torch.relu(_fl2 - _hd.float()) * (_fl2 > 0).float()
                         _wf = (_wd if _wd_full is not None else torch.ones(1, 1, 1, device=pred.device))
                         l_seam_floor_soft = (_gap * _wf).sum() / (torch.broadcast_to((_fl2.float() > 0).float() * _wf, _gap.shape).sum() + eps)
-                except Exception as _e:
+                except Exception as _e2:
                     if bool(getattr(self.cfg, "strict_loss_terms", True)):
-                        raise RuntimeError("l_seam_floor_soft failed: %r" % (_e,))
+                        raise RuntimeError("l_seam_floor_soft failed: %r" % (_e2,))
                 try:
                     _a3 = float(getattr(self.cfg, "alpha_fused_band_z", 0.0))
                     _zf = outputs.get("z_hat_pre_lateral")
@@ -1215,6 +1215,24 @@ class ProjectLoss(nn.Module):
                 ch = _corr(_yh[:, :, _ls:_mid].mean(-1), _yh[:, :, _mid:].mean(-1))
                 ct = _corr(_yt[:, :, _ls:_mid].mean(-1), _yt[:, :, _mid:].mean(-1))
                 l_prof_mg = (ch - ct).abs().mean()
+        l_lat_bal = torch.zeros((), device=_zdev)
+        _z0800 = outputs.get("z_hat_pre_event")
+        _ha3 = batch.get("has_anomaly")
+        if (float(getattr(self.cfg, "alpha_lateral_balanced", 0.0) or 0.0) > 0.0 and _z0800 is not None and _ha3 is not None
+                and _P > 2 and _z0800.shape[0] % _P == 0 and int(_ha3.numel()) == int(_z0800.shape[0])):
+            _n4 = int(_z0800.shape[0]) // _P
+            _g5 = int(self.late_start) // 2
+            _yh2 = _z0800.float().reshape(_n4, _P, -1)[..., _g5:]
+            _yt2 = target_z.float().reshape(_n4, _P, -1)[..., _g5:]
+            _e = ((_yh2[:, 2:] - 2.0 * _yh2[:, 1:-1] + _yh2[:, :-2])
+                     - (_yt2[:, 2:] - 2.0 * _yt2[:, 1:-1] + _yt2[:, :-2])).abs().mean(dim=-1)
+            _h = (_ha3.detach().float().reshape(_n4, _P) > 0.5).float()
+            _b3 = torch.maximum(torch.maximum(_h[:, 2:], _h[:, 1:-1]), _h[:, :-2])
+            _nb2, _nq2 = _b3.sum(), (1.0 - _b3).sum()
+            _mb = (_e * _b3).sum() / _nb2.clamp_min(1.0)
+            _mq = (_e * (1.0 - _b3)).sum() / _nq2.clamp_min(1.0)
+            _both = ((_nb2 > 0) & (_nq2 > 0)).float()
+            l_lat_bal = _both * 0.5 * (_mb + _mq) + (1.0 - _both) * (_mb + _mq)
 
         aux = (
             z_scale * z_shape
@@ -1247,6 +1265,7 @@ class ProjectLoss(nn.Module):
             + self.cfg.alpha_profile_d2 * l_prof_d2
             + self.cfg.alpha_profile_newext * l_prof_newext
             + self.cfg.alpha_profile_multigate * l_prof_mg
+            + float(getattr(self.cfg, "alpha_lateral_balanced", 0.0) or 0.0) * l_lat_bal
         )
         l_anom_diff = pred.new_zeros(())
         l_anom_amp = pred.new_zeros(())
@@ -1475,6 +1494,7 @@ class ProjectLoss(nn.Module):
             "l_profile_d2": l_prof_d2,
             "l_profile_newext": l_prof_newext,
             "l_profile_multigate": l_prof_mg,
+            "l_lateral_balanced": l_lat_bal,
             "global_part": contract_global + l_metric_early + l_man_e,
             "l_event_gate": l_event_gate,
             "l_event_struct": l_event_struct,
